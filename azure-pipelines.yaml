@@ -1,0 +1,57 @@
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  acrName: <your-acr-name>
+  aksCluster: <your-aks-cluster>
+  resourceGroup: <your-resource-group>
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildImages
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: Docker@2
+      inputs:
+        command: buildAndPush
+        containerRegistry: '<your-acr-service-connection>'
+        repository: 'frontend'
+        dockerfile: 'frontend/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+
+    - task: Docker@2
+      inputs:
+        command: buildAndPush
+        containerRegistry: '<your-acr-service-connection>'
+        repository: 'backend'
+        dockerfile: 'backend/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - job: DeployToAKS
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - checkout: self
+    - task: Kubernetes@1
+      displayName: Apply Secrets + Backend + Frontend
+      inputs:
+        connectionType: Azure Resource Manager
+        azureSubscription: '<your-arm-service-connection>'
+        azureResourceGroup: $(resourceGroup)
+        kubernetesCluster: $(aksCluster)
+        namespace: default
+        command: apply
+        useConfigurationFile: true
+        configuration: |
+          k8s/mongo-secret.yaml
+          k8s/backend-deployment.yaml
+          k8s/frontend-deployment.yaml
